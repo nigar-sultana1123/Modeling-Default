@@ -1,0 +1,347 @@
+---
+title: "Modeling Default in Peer-to-Peer LEnding Services"
+author: "Nigar Sultana"
+date: '2020-07-31'
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Read csv files
+
+```{r, message=FALSE}
+df1 <- read.csv(file= "../Data/Loan2012_2013.csv",stringsAsFactors=FALSE)
+
+df2 <- read.csv(file= "../Data/Loan2014.csv", stringsAsFactors=FALSE)
+
+df3 <- read.csv(file= "../Data/Loan2015.csv", stringsAsFactors=FALSE)
+
+dfCombined <- rbind(df1,df2,df3)
+
+remove(df1,df2,df3) #remove previous data frames to consume less computation power
+
+```
+
+## 2. Data Wrangling
+
+-   Dealing with empty cells
+
+```{r, empty cells}
+
+## Replacing blank cell with NA 
+
+dfCombined[dfCombined==''] <- NA
+
+
+## Remove empty column
+
+dfCombined <- Filter(function(x)!all(is.na(x)), dfCombined) # (136 variables after deleting the empty columns)
+
+
+## Drop columns using dplyr package (reasons of drop discussed in the report)
+
+df_reduced <- select (dfCombined,-c(9,10, 17,18,19,21,22,28,38,39,44:46,49,53,55:57:59,63:73,75,
+                                    
+                                    76,77,90,92,115:136))
+
+## Remove previous dataframes to consume less computation power
+
+remove(dfCombined)
+
+
+```
+
+-   Data formatting
+
+```{r, data formatting}
+
+## Using mutate_at function to  convert the character variables to numeric
+
+df_reduced <- df_reduced %>%
+  
+  mutate_at(vars(int_rate), funs (as.numeric(gsub(pattern = "%",replacement = "",x = df_reduced$int_rate)))) %>%
+  
+  mutate_at(vars(revol_util), funs(as.numeric(gsub(pattern = "%",replacement = "",x = df_reduced$revol_util))))
+
+
+## Convert string date type to date format
+
+chr_date <- c("issue_d", "last_pymnt_d", "last_credit_pull_d", "earliest_cr_line")
+
+
+transform_date <- function(x){
+  as.Date(paste0("01-", x), format = "%d-%b-%y")
+} 
+
+
+df_reduced<-
+  df_reduced%>%
+  mutate_at( .funs = funs(transform_date), .vars = chr_date,)
+
+```
+
+-   Dealing with missing values
+
+```{r, dealing with missing values}
+
+## Replace with median values 
+
+df_reduced <- df_reduced %>%
+  
+  mutate_at(vars(funded_amnt,loan_amnt,funded_amnt_inv, annual_inc, dti, fico_range_low, 
+                 
+                 tot_hi_cred_lim), ~ifelse(is.na(.), median(., na.rm = TRUE), .))
+
+
+
+### I have replaced the missing values of 46 numerical variables with zero
+
+na_replace_with_zero <-
+  c("mths_since_last_delinq", "mths_since_last_record",
+    "mths_since_last_major_derog", "installment", "inq_last_6mths","open_acc",
+    "pub_rec", "revol_bal", "total_acc","total_pymnt","total_pymnt_inv","total_rec_prncp",
+    "total_rec_int","last_pymnt_amnt","last_fico_range_high","last_fico_range_low", "acc_now_delinq", "tot_coll_amt", 
+    "acc_open_past_24mths", "bc_util", "chargeoff_within_12_mths", "delinq_amnt", "mo_sin_old_il_acct", "mo_sin_old_rev_tl_op",
+    "mo_sin_rcnt_rev_tl_op","mo_sin_rcnt_tl", "mort_acc", "mths_since_recent_bc", "mths_since_recent_inq", "num_accts_ever_120_pd",
+    "num_actv_bc_tl", "num_actv_rev_tl", "num_bc_sats", "num_bc_tl", "num_il_tl", "num_op_rev_tl", "num_rev_accts",
+    "num_rev_tl_bal_gt_0", "num_sats", "num_tl_120dpd_2m", "num_tl_30dpd", "num_tl_90g_dpd_24m", "num_tl_op_past_12m","pct_tl_nvr_dlq",
+    "percent_bc_gt_75", "pub_rec_bankruptcies", "tot_cur_bal", "total_rev_hi_lim", "avg_cur_bal", "bc_open_to_buy", "total_bal_ex_mort", 
+    "total_bc_limit", "total_il_high_credit_limit", "revol_util" )
+
+
+df_reduced <- 
+  df_reduced %>%
+  mutate_at(.vars = na_replace_with_zero , .funs = funs(replace(., is.na(.), 0)))
+
+
+## replace missing value of last_credit_pull_d with median date
+
+caseDay <- ymd("2019-06-01")
+
+df_reduced <- df_reduced %>%
+  
+  mutate(last_credit_pull_d = case_when(is.na(last_credit_pull_d) ~ caseDay,
+                                        
+                                        TRUE ~ last_credit_pull_d))
+
+
+## replace missing value of last_pymnt_d with maximum date
+
+caseDay1 <- ymd("2020-06-01")
+
+df_reduced <- df_reduced %>%
+  
+  mutate(last_pymnt_d = case_when(is.na(last_pymnt_d) ~ caseDay1,
+                                  
+                                  TRUE ~ last_pymnt_d))
+
+
+### Delete observation of categorical variables
+
+df_reduced <- 
+  df_reduced %>% drop_na(term)
+
+
+df_reduced <- 
+  df_reduced %>% drop_na(loan_status) 
+
+```
+
+## 3. EDA
+
+The exploratory data analysis has been done in Tableau and R. Details of EDA can be found in the EDA section of "ProjectFinalDraft" file.
+
+## 4. Modeling
+
+-Transform data for applying discrete time duration model
+
+```{r, data transformation for modeling}
+
+## Convert to Discrete time measurement ( get the duration time in  months)
+
+
+df_clean  <- df_clean %>%
+  
+  mutate(
+    duration_mnths = 
+      (interval((df_clean$issue_d), (df_clean$last_pymnt_d)) %/% months(1)))
+
+```
+
+For simplicity of the analysis, I will select only 36 month loan data (details have been explained in the "ProjectFinalDraft" file).
+
+```{r, loan month}
+
+
+# convert the term variable from string to numeric and add the new variable as loan month
+
+df_clean <- df_clean %>% 
+  
+  mutate(loan_month = as.numeric(substr (df_clean$term,0,3)))
+
+
+df_clean <-  filter(df_clean, loan_month == 36 ) # filter observations for 36 month loan
+
+```
+
+**Person-period-data**
+
+```{r, person-period-data}
+
+## select 'Charged Off' , 'Default' ,'Late (31-120 days)' as 1 and 'Fully Paid' as 0 
+
+df_clean <- df_clean %>%
+  mutate(loan_outcome  = ifelse(loan_status %in% c('Charged Off' , 'Default' ,'Late (31-120 days)') , 1, 
+                                
+                                ifelse(loan_status == 'Fully Paid' , 0 , 'No info')))
+
+
+
+## delete loan status and filter loan outcome with dummy variable
+
+df_clean_loan<- df_clean %>% select(-loan_status) %>% filter(loan_outcome %in% c(1 , 0))
+
+
+## Remove previous dataframes to consume less computation power
+
+remove(df_clean)
+
+## two added variables: loan mnth (transform from term variable) and loan_outcome (from loan statue; either fully paid or charged off)
+
+df_clean_loan <- select (df_clean_loan,-c("term")) # delete the term column 
+
+
+df_clean_loan$loan_outcome_2 <-  as.integer(df_clean_loan$loan_outcome) 
+
+
+## take the duration months grater than 0 month and less than 41 months and get duration time quarterly
+
+df_clean_loan <- df_clean_loan  %>% 
+  
+  
+  filter(duration_mnths > 0 & duration_mnths < 41)  %>% 
+  
+  mutate(durtion_quarter = ceiling(duration_mnths/3))
+
+
+## Delete variables which have duplicate columns. Date variables is not  included in the model. 
+
+df_clean_loan <- select (df_clean_loan,-c("id","addr_state", "int_rate",
+                                          
+                                          "loan_month", "loan_outcome","last_credit_pull_d", "earliest_cr_line",
+                                          "duration_mnths", "issue_d", "last_pymnt_d"))
+
+```
+
+\*\* Transforming the training and test data into quarterly observations \*\*
+
+```{r, tranforming data into quarterly observations}
+
+## person-period data matrix
+
+train_df <- dataLong(df_clean_loan, 
+                     
+                     timeColumn = "durtion_quarter",   
+                     censColumn = "loan_outcome_2",   
+                     timeAsFactor = F) 
+
+
+## Remove previous dataframes to consume less computation power
+
+remove(df_clean_loan)
+
+```
+
+\*\* Models \*\*
+
+```{r, models}
+
+Model_A <- glm(formula = y ~ factor(timeInt) -1 ,
+               family = binomial(link = "logit"),
+               data = train_df)
+
+
+
+
+## base model + borrowers' demographic information variables
+
+Model_B<- glm(formula = y ~ factor(timeInt) -1  + grade +	purpose +
+                
+                verification_status + initial_list_status + delinq_2yrs + mths_since_last_delinq +  
+                
+                mths_since_last_record +  inq_last_6mths + annual_inc + mths_since_last_major_derog+ acc_open_past_24mths
+              
+              + mo_sin_old_il_acct + mo_sin_old_rev_tl_op + mo_sin_rcnt_tl + mths_since_recent_bc +
+                
+                mths_since_recent_inq + num_tl_30dpd + num_tl_90g_dpd_24m +  num_tl_op_past_12m,
+              
+              family = binomial(link = "logit"),
+              
+              data = train_df)
+
+
+
+## funded_amnt_inv + dti + revol_util + fico_range_low + total_pymnt + last_pymnt_amnt +last_pymnt_amnt + last_fico_range_high + 
+
+## tot_cur_bal + avg_cur_bal + bc_open_to_buy + tot_hi_cred_lim + total_bc_limit + total_il_high_credit_limit ,
+
+
+
+
+
+Model_C <- glm(formula = y ~ factor(timeInt) -1  + grade +	purpose +
+                 
+                 verification_status + initial_list_status + delinq_2yrs + mths_since_last_delinq +  
+                 
+                 mths_since_last_record +  inq_last_6mths + annual_inc + mths_since_last_major_derog+ acc_open_past_24mths
+               
+               + mo_sin_old_il_acct + mo_sin_old_rev_tl_op + mo_sin_rcnt_tl + mths_since_recent_bc +
+                 
+                 mths_since_recent_inq + num_tl_30dpd + num_tl_90g_dpd_24m +  num_tl_op_past_12m + 
+                 
+                 funded_amnt_inv + dti + revol_util + fico_range_low + total_pymnt + last_pymnt_amnt +
+                 
+                 last_pymnt_amnt + last_fico_range_high + tot_cur_bal + avg_cur_bal + bc_open_to_buy +
+                 
+                 tot_hi_cred_lim + total_bc_limit + total_il_high_credit_limit ,
+               
+               family = binomial(link = "logit"),
+               
+               data = train_df)
+
+
+
+## added variables: pub_rec, pub_rec_bankruptcies, revol_bal, total_acc, acc_now_delinq, bc_util, delinq_amnt, mort_acc
+
+## num_accts_ever_120_pd, num_actv_bc_tl, num_actv_rev_tl, num_il_tl, percent_bc_gt_75, 
+
+
+
+Model_D <- glm(formula = y ~ factor(timeInt) -1  + grade +	purpose +
+                 
+                 verification_status + initial_list_status + delinq_2yrs + mths_since_last_delinq +  
+                 
+                 mths_since_last_record +  inq_last_6mths + annual_inc + mths_since_last_major_derog+ acc_open_past_24mths
+               
+               + mo_sin_old_il_acct + mo_sin_old_rev_tl_op + mo_sin_rcnt_tl + mths_since_recent_bc +
+                 
+                 mths_since_recent_inq + num_tl_30dpd + num_tl_90g_dpd_24m +  num_tl_op_past_12m + 
+                 
+                 funded_amnt_inv + dti + revol_util + fico_range_low + total_pymnt + last_pymnt_amnt +
+                 
+                 last_pymnt_amnt + last_fico_range_high + tot_cur_bal + avg_cur_bal + bc_open_to_buy +
+                 
+                 tot_hi_cred_lim + total_bc_limit + total_il_high_credit_limit  +  pub_rec + pub_rec_bankruptcies +
+                 
+                 revol_bal + total_acc + acc_now_delinq + bc_util + delinq_amnt +  mort_acc + num_accts_ever_120_pd +
+                 
+                 num_actv_bc_tl + num_actv_rev_tl + num_il_tl + percent_bc_gt_75,
+               
+               family = binomial(link = "logit"),
+               
+               data = train_df)
+
+
+```
