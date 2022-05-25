@@ -11,6 +11,8 @@ Although P2P is growing fast, in addition to its highlighted benefits, there is 
  
  ## Data 
  For my analysis, I used data from \textit{Lending Club}, the biggest P2P company in the United States. The sample contains loans funded from 2012 to 2015 including two maturity periods: 36 months and 60 months. Loans with 36 months maturity period considered for the analysis because the loan funded for 60 months maturity period in December 2015, is still unknown. See the "DataAppendix" for more details about the variables.
+ ## EDA
+ Exploratory data analysis has been done in Tableau. All the graphs are included in the Figures folder. Also the description od EDA can be found in the "ProjectFinalDraft".
   
  ## Modeling
  Discrete-time survival analysis was performed for explaining loan default. The full analysis has been explained in the "ProjectFinalDraft" file.
